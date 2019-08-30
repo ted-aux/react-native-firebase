@@ -40,7 +40,7 @@ RCT_EXPORT_METHOD(transactionGetDocument:(NSString *)appDisplayName
                   rejecter:(RCTPromiseRejectBlock)reject) {
     @synchronized (self->_transactions[[transactionId stringValue]]) {
         __block NSMutableDictionary *transactionState = self->_transactions[[transactionId stringValue]];
-        
+
         if (!transactionState) {
             DLog(@"transactionGetDocument called for non-existant transactionId %@", transactionId);
             return;
@@ -56,11 +56,11 @@ RCT_EXPORT_METHOD(transactionGetDocument:(NSString *)appDisplayName
         } else {
             NSDictionary *snapshotDict = [RNFirebaseFirestoreDocumentReference snapshotToDictionary:snapshot];
             NSString *path = snapshotDict[@"path"];
-            
+
             if (path == nil) {
                 [snapshotDict setValue:ref.path forKey:@"path"];
             }
-            
+
             resolve(snapshotDict);
         }
     }
@@ -108,7 +108,7 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
 
     [firestore runTransactionWithBlock:^id (FIRTransaction *transaction, NSError * *errorPointer) {
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-        
+
         @synchronized (transactionState) {
             transactionState[@"semaphore"] = semaphore;
             transactionState[@"transaction"] = transaction;
@@ -116,7 +116,7 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
             if (!self->_transactions[[transactionId stringValue]]) {
                 [self->_transactions setValue:transactionState forKey:[transactionId stringValue]];
             }
-            
+
             // Build and send transaction update event
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                 NSMutableDictionary *eventMap = [NSMutableDictionary new];
@@ -132,10 +132,10 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
         // signal the semaphore then no further blocks will be executed by RNFirestore until the timeout expires
         dispatch_time_t delayTime = dispatch_time(DISPATCH_TIME_NOW, 5000 * NSEC_PER_SEC);
         BOOL timedOut = dispatch_semaphore_wait(semaphore, delayTime) != 0;
-        
+
         @synchronized (transactionState) {
             aborted = [transactionState valueForKey:@"abort"];
-            
+
             if (transactionState[@"semaphore"] != semaphore) {
                 return nil;
             }
@@ -149,13 +149,13 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
                 *errorPointer = [NSError errorWithDomain:FIRFirestoreErrorDomain code:FIRFirestoreErrorCodeDeadlineExceeded userInfo:@{}];
                 return nil;
             }
-            
+
             if (completed == YES) {
                 return nil;
             }
 
             NSArray *commandBuffer = [transactionState valueForKey:@"commandBuffer"];
-            
+
             for (NSDictionary *command in commandBuffer) {
                 NSString *type = command[@"type"];
                 NSString *path = command[@"path"];
@@ -182,7 +182,7 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
     } completion:^(id result, NSError *error) {
         if (completed == YES) return;
         completed = YES;
-        
+
         @synchronized (transactionState) {
             if (aborted == NO) {
                 NSMutableDictionary *eventMap = [NSMutableDictionary new];
@@ -195,13 +195,13 @@ RCT_EXPORT_METHOD(transactionBegin:(NSString *)appDisplayName
                 } else {
                     eventMap[@"type"] = @"complete";
                 }
-                
+
                 [RNFirebaseUtil sendJSEvent:self name:FIRESTORE_TRANSACTION_EVENT body:eventMap];
             }
-            
+
             [self->_transactions removeObjectForKey:[transactionId stringValue]];
         }
-        
+
     }];
 }
 
@@ -412,9 +412,14 @@ RCT_EXPORT_METHOD(settings:(NSString *)appDisplayName
     // So we need to make sure the dispatch queue is set correctly
     if (!initialisedApps[appDisplayName]) {
         initialisedApps[appDisplayName] = @(true);
-        FIRFirestoreSettings *firestoreSettings = [[FIRFirestoreSettings alloc] init];
-        firestoreSettings.dispatchQueue = firestoreQueue;
-        [firestore setSettings:firestoreSettings];
+        @try {
+            FIRFirestoreSettings *firestoreSettings = [[FIRFirestoreSettings alloc] init];
+            firestoreSettings.dispatchQueue = firestoreQueue;
+            [firestore setSettings:firestoreSettings];
+        }
+        @catch (NSException *exception) {
+            NSLog(@"%@", exception.reason);
+        }
     }
     return firestore;
 }
